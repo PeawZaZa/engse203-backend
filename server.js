@@ -1,19 +1,31 @@
 // server.js
 const express = require('express');
-require('dotenv').config(); // << เพิ่มบรรทัดนี้ที่ด้านบน
+const http = require('http'); 
+const { Server } = require("socket.io");
+const cors = require('cors');
+const helmet = require('helmet');
+const Joi = require('joi');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000; // << อ่านค่า PORT จาก .env
+const server = http.createServer(app);
+const io = new Server(server, { 
+    cors: { origin: "*" } 
+});
+
+const PORT = process.env.PORT || 3001;
 const APP_NAME = process.env.APP_NAME;
-const cors = require('cors'); // << Import cors
-require('dotenv').config();
-const helmet = require('helmet');
-const Joi = require('joi'); // << Import Joi
 
-
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "script-src": ["'self'", "'unsafe-inline'"],
+    },
+  },
+}));
 app.use(cors()); 
-app.use(express.json()); // << สำคัญ! ต้องมี middleware นี้เพื่ออ่าน JSON body
+app.use(express.json());
 
 const userSchema = Joi.object({
     username: Joi.string().alphanum().min(3).max(30).required(),
@@ -21,27 +33,35 @@ const userSchema = Joi.object({
     birth_year: Joi.number().integer().min(1900).max(new Date().getFullYear())
 });
 
-// Route สำหรับสร้าง user
 app.post('/api/users', (req, res) => {
     const { error, value } = userSchema.validate(req.body);
-
     if (error) {
-        // ถ้าข้อมูลไม่ถูกต้อง ส่ง 400 Bad Request กลับไปพร้อมรายละเอียด
         return res.status(400).json({ message: 'Invalid data', details: error.details });
     }
-
-    // ถ้าข้อมูลถูกต้อง
     console.log('Validated data:', value);
-    res.status(201).json({ message: 'User created successsssfully!', data: value });
+    res.status(201).json({ message: 'User created successfully!', data: value });
 });
-app.get('/', (req, res) => {
-  res.send(`<h1>Hello from ${APP_NAME}!ss</h1>`);
-});
-app.listen(PORT, () => {
-  console.log(`🚀 ${APP_NAME} is running on http://localhost:${PORT}`);
-});
-
 
 app.get('/api/data', (req, res) => {
     res.json({ message: 'This data is open for everyone!' });
+});
+
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/index.html');
+});
+
+io.on('connection', (socket) => {
+    console.log('A user connected:', socket.id);
+    socket.on('chat message', (msg) => {
+        console.log('message: ' + msg);
+        io.emit('chat message', `[${socket.id} says]: ${msg}`);
+    });
+    socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
+    });
+});
+
+// This is the only server.listen() you need
+server.listen(PORT, () => {
+    console.log(`🚀 ${APP_NAME || 'Server'} is running on http://localhost:${PORT}`);
 });
